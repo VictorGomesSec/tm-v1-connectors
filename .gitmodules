@@ -1,0 +1,3 @@
+[submodule "rapid7"]
+	path = rapid7
+	url = https://github.com/trendmicro/v1-connector-rapid7.git
