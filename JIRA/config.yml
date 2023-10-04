@@ -1,0 +1,90 @@
+# App configuration
+app:
+  # Poll time in seconds
+  poll_time: 15
+  # Workbench alerts configuration
+  alert:
+    # Workbench alerts retrieval start time (UTC timezone),
+    # If empty, defaults to 24 hours before the request is made.
+    start_time: 1970-01-01 00:00:00
+    # Workbench alerts retrieval end time (UTC timezone),
+    # If empty, defaults to the time the request is made.
+    end_time:
+    # Skip closed alerts in Vision One, else create a new JIRA and re-open the alert.
+    skip_closed: true
+  # Logging configuration
+  log:
+    # Enable debug logging
+    debug: false
+    # Enable logging to file instead of stdout
+    to_file: false
+    # Log filename
+    filename: app.log
+    # Log file max size in MB
+    file_size: 50
+    # Number of log files to keep
+    file_count: 5
+
+# Vision One configuration
+v1:
+  # Vision One API URL
+  url: https://api.region.xdr.trendmicro.com
+  # Vision One API Token
+  token: token
+# JIRA configuration
+jira:
+  # JIRA URL
+  url: https://company.atlassian.net
+  # JIRA Cloud Username (User email address associated to the API Token)
+  # Important: leave empty if using JIRA On-premise
+  username: usermail@domain.com
+  # JIRA Cloud API Token or On-premise Personal Authentication Token
+  token: token
+  fields:
+    # Prefix to use for the issue summary
+    # leave empty if not required
+    summary_prefix: My Project
+    static:
+      # JIRA key-value mapping
+      # key: JIRA field
+      # value: JIRA field value
+      # type: JIRA field value type (id, array, string, name)
+      - key: project
+        value: 123456
+        type: id
+      - key: issuetype
+        value: 123456
+        type: id
+      - key: customfield_123456
+        value: 123456
+        type: id
+    dynamic:
+      # JIRA to Vision One Alert mapping
+      # Map JIRA field to the Vision One Alert properties returned from REST API Alert detail,
+      # Optional value mapping available to map possible JIRA field values with Vision One property values.
+      # key: JIRA field
+      # value: Vision One Alert property
+      # type: JIRA field value type (id, array, string, name, value)
+      # mapping: (optional) JIRA field value to Vision One property value, i.e: '{jira_value}: {vision_one_prop_value, ...}'
+      - key: priority
+        value: severity
+        type: name
+        mapping:
+          P3: low
+          P2: medium
+          P1: high
+          P0: critical
+  status:
+    # JIRA Issue status to Vision One Alert status mapping
+    # key: JIRA status
+    # value: Vision One Alert status
+    # fields: (optional) JIRA static key/value/type mapping for statuses having extra fields to be set during the transition,
+    # for example when closing an issue, engineer resolution is required.
+    - key: Evaluation
+      value: New
+    - key: Closed
+      value: Closed
+      fields:
+        - key: resolution
+          value: 123456
+          type: id
