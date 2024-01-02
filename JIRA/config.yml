@@ -40,40 +40,40 @@ jira:
   username: usermail@domain.com
   # JIRA Cloud API Token or On-premise Personal Authentication Token
   token: token
-  fields:
-    # Prefix to use for the issue summary
-    # leave empty if not required
-    summary_prefix: My Project
-    static:
-      # JIRA key-value mapping
-      # key: JIRA field
-      # value: JIRA field value
-      # type: JIRA field value type (id, array, string, name)
-      - key: project
-        value: 123456
-        type: id
-      - key: issuetype
-        value: 123456
-        type: id
-      - key: customfield_123456
-        value: 123456
-        type: id
-    dynamic:
-      # JIRA to Vision One Alert mapping
-      # Map JIRA field to the Vision One Alert properties returned from REST API Alert detail,
-      # Optional value mapping available to map possible JIRA field values with Vision One property values.
-      # key: JIRA field
-      # value: Vision One Alert property
-      # type: JIRA field value type (id, array, string, name, value)
-      # mapping: (optional) JIRA field value to Vision One property value, i.e: '{jira_value}: {vision_one_prop_value, ...}'
-      - key: priority
-        value: severity
-        type: name
-        mapping:
-          P3: low
-          P2: medium
-          P1: high
-          P0: critical
+mapping:
+  # Prefix to use for the issue summary
+  # leave empty if not required
+  summary_prefix: My Project
+  static:
+    # JIRA key-value mapping
+    # key: JIRA field
+    # value: JIRA field value
+    # type: JIRA field value type (id, array, string, name)
+    - key: project
+      value: 123456
+      type: id
+    - key: issuetype
+      value: 123456
+      type: id
+    - key: customfield_123456
+      value: 123456
+      type: id
+  dynamic:
+    # JIRA to Vision One Alert mapping
+    # Map JIRA field to the Vision One Alert properties returned from REST API Alert detail,
+    # Optional value mapping available to map possible JIRA field values with Vision One property values.
+    # key: JIRA field
+    # value: Vision One Alert property
+    # type: JIRA field value type (id, array, string, name, value)
+    # mapping: (optional) JIRA field value to Vision One property value, i.e: '{jira_value}: {vision_one_prop_value, ...}'
+    - key: priority
+      value: severity
+      type: name
+      mapping:
+        P3: low
+        P2: medium
+        P1: high
+        P0: critical
   status:
     # JIRA Issue status to Vision One Alert status mapping
     # key: JIRA status
