@@ -2,81 +2,78 @@
 
 #### Prerequisites
 - [Python 3.7](https://www.python.org/downloads/) or newer.
-- Trend Vision One account with a chosen region - [Trend Vision One documentation](https://github.com/trendmicro/tm-v1-fs-python-sdk#:~:text=Trend%20Vision%20One%20documentation).
-- Trend Vision One API key with proper role - [Trend Vision One API key documentation](https://github.com/trendmicro/tm-v1-fs-python-sdk#:~:text=Trend%20Vision%20One%20API%20key%20documentation).
+- JIRA API url.
+- JIRA username/token.
+- Trend Vision One API url. 
+- Trend Vision One API token with permissions: 
+  - View, filter, and search
+  - Modify alert details
 
 #### Features
-- Create issue from Trend Vision One workbench alerts
-- Add note with jira number to the workbench alert
-- Update issue based on workbench alert status/jira status
-- Customisable JIRA field mapping
-    
+- Create issue from Trend Vision One workbench alerts.
+- Add issue number to the workbench alert notes.
+- Update issue based on workbench alert status/jira status mapping.
+- Map issue fields to static data/vision one attributes.
+ 
+#### Quick start
+- Installation:
+  ```
+  python3 -m venv .venv
+  source .venv/bin/activate
+  pip install --upgrade pip
+  pip install -r requirements.txt
+  ```
+- Configuration:
+  - Edit [config.yml](config.yml).
+
+- Start application:
+  ```
+  python3 app.py
+  ```
+
 #### YAML Configuration
 The configuration of this project is based on YAML config file [config.yml](config.yml).
-Please check this file for a reference implementation and adapt it to your project requirements.
-
 ##### General
-| config path | parameter          | description                                                                                                |
-|:------------|:-------------------|:-----------------------------------------------------------------------------------------------------------|
-| app         | poll_time          | Poll time in seconds.                                                                                      |
-| app.alert   | start_time         | Workbench alerts retrieval start time (UTC timezone), If empty, defaults to the time the request is made.  |
-| app.alert   | end_time           | Workbench alerts retrieval end time (UTC timezone), If empty, defaults to the time the request is made.    |
-| app.alert   | skip_closed        | Skip closed alerts in Vision One, else create a new JIRA and re-open the alert.                            |
-| app.log     | debug              | Enable debug logging.                                                                                      |
-| app.log     | to_file            | Enable logging to file instead of stdout.                                                                  |
-| app.log     | filename           | Log filename                                                                                               |
-| app.log     | file_size          | Log file max size in MB                                                                                    |
-| app.log     | file_count         | Number of log files to keep                                                                                |
-
+| yaml           | description                                                                                  |
+|:---------------|:---------------------------------------------------------------------------------------------|
+| project        | JIRA Project ID or key.                                                                      |
+| issue_type     | JIRA Issue type ID or name.                                                                  |
+| summary_prefix | (Optional) JIRA Issue summary prefix.                                                        |
+| poll_time      | Skip closed alerts in Vision One, else create a new JIRA and re-open the alert.              |
+| start_time     | (Optional) Alerts fetch start time (UTC timezone), defaults to the time the request is made. |
+| end_time       | (Optional) Alerts fetch end time (UTC timezone), defaults to the time the request is made.   |
+| skip_closed    | Skip closed alerts in Vision One, else create a new JIRA and re-open the alert.              |
+| debug          | Enable debug logging.                                                                        |
+| to_file        | Enable logging to file instead of stdout.                                                    |
+| filename       | Log filename.                                                                                |
+| file_size      | Log file max size in MB.                                                                     |
+| file_count     | Log files rotation count.                                                                    |
 ##### Vision One
-| config path | parameter          | description                                                                                                |
-|:------------|:-------------------|:-----------------------------------------------------------------------------------------------------------|
-| v1          | url                | Vision One API URL                                                                                         |
-| v1          | token              | Vision One API Token                                                                                       |
+| yaml     | description           |
+|:---------|:----------------------|
+| v1.url   | Vision One API URL.   |
+| v1.token | Vision One API Token. | 
 
 ##### JIRA
-| config path | parameter          | description                                                                                                |
-|:------------|:-------------------|:-----------------------------------------------------------------------------------------------------------|
-| jira        | url                | JIRA URL                                                                                                   |
-| jira        | username           | JIRA Cloud Username (User email address associated to the API Token), If using JIRA On-premise leave empty |
-| jira        | token              | JIRA Cloud API Token or On-premise Personal Authentication Token                                           |
+| yaml          | description                                                                                                 |
+|:--------------|:------------------------------------------------------------------------------------------------------------|
+| jira.url      | JIRA URL.                                                                                                   |
+| jira.username | JIRA Cloud Username (User email address associated to the API Token), If using JIRA On-premise leave empty. |
+| jira.token    | JIRA Cloud API Token or On-premise Personal Authentication Token.                                           |
 
-##### Summary prefix mapping
-| config path | parameter          | description                                                                                                |
-|:------------|:-------------------|:-----------------------------------------------------------------------------------------------------------|
-| mapping     | summary_prefix     | Prefix to use for the issue summary, If not required leave empty                                           |
+##### Mapping: [JIRA issue fields] to [Static data] OR [Vision One attributes mapping]
+- Map JIRA field to: static values, or to Vision One alert attributes returned by [Get alert details API](https://automation.trendmicro.com/xdr/api-v3#tag/Workbench/paths/~1v3.0~1workbench~1alerts/get).
+- (Optional) mapping available to map multiple JIRA values with Vision One attributes values. (i.e: priority 'P3' in JIRA mapped to Vision One severity 'low').
 
-##### JIRA key-value mapping
-| config path      | parameter          | description                                                                  |
-|:-----------------|:-------------------|:-----------------------------------------------------------------------------|
-| mapping.static[] | key                | JIRA field key (i.e: project, label, customfield_12345, ...)                 |
-|                  | value              | JIRA field value (i.e: 123456, "label1,label2,label3", "string", value_name) |
-|                  | type               | JIRA field value type (id, array, string, name)                              |
+| yaml               | description                                                                                                                                           |
+|:-------------------|:------------------------------------------------------------------------------------------------------------------------------------------------------|
+| fields[].name      | JIRA field name or key (i.e: priority, label, customfield_12345, ...).                                                                                |
+| fields[].value([]) | JIRA field value(s) (i.e: 2345, Option 1, email@address.com, ...) or Vision One attribute (i.e: alert.id, alert.alert_provider, alert.severity, ...). |
+| fields[].mapping   | (Optional) JIRA-Vision one field value mapping (i.e: P3: low).                                                                                        |
 
-##### Workbench Alert key-value mapping
-Map JIRA field to Vision One Workbench Alerts attributes returned by API [Get alert details](https://automation.trendmicro.com/xdr/api-v3#tag/Workbench/paths/~1v3.0~1workbench~1alerts/get).
-Optional mapping available to map multiple JIRA values with Vision One attributes values. (i.e: priority 'P3' in JIRA mapped to Vision One severity 'low').
-
-| config path       | parameter | description                                            |
-|:------------------|:----------|:-------------------------------------------------------|
-| mapping.dynamic[] | key       | JIRA field (i.e: priority)                             |
-|                   | value     | Vision One Alert field (i.e: severity)                 |
-|                   | type      | JIRA field value type (id, array, string, name, value) |
-|                   | mapping   | (optional) JIRA field value mapping (i.e: P3: low)     |
-
-###### Status
-Map JIRA status to Vision One Alert status.
-
-| config path               | parameter | description                      |
-|:--------------------------|:----------|:---------------------------------|
-| mapping.status[]          | key       | JIRA status                      |
-|                           | value     | Vision One Alert status          |
-| mapping.status[].fields[] | key       | JIRA field key (i.e: resolution) |
-|                           | value     | JIRA field value (i.e: 123456)   |
-|                           | type      | JIRA field type (i.e: id)        | 
-
-#### Quick start
-Installation
-```
-pip install pytmv1
-```
+##### Mapping: [JIRA issue status] to [Vision One Alert investigation status]
+| yaml                | description                                                    |
+|:--------------------|:---------------------------------------------------------------|
+| status[].name       | JIRA status name (i.e: To Do, Done, ...).                      |
+| status[].inv        | Vision One Alert investigation status (i.e: New, Closed, ...). |
+| status[].fields([]) | (Optional) JIRA field name/value mapping as described above.   |
