@@ -8,7 +8,7 @@ import threading
 import time
 from enum import Enum
 from functools import reduce
-from typing import Dict, List, Union, Any
+from typing import Any, Dict, List, Union
 
 import pytmv1
 import yaml
@@ -35,27 +35,41 @@ LOG_FORMAT = (
 )
 LOG_FORMAT_DATE = "%Y-%m-%d %H:%M:%S"
 
+OPTIONAL_KEYS = {
+    "start_time",
+    "end_time",
+}
+
 _THREAD_LOCAL = threading.local()
+log = logging.getLogger(__name__)
 
 
-class UuidFilter(logging.Filter):
-    def filter(self, record):
-        record.id = (
-            _THREAD_LOCAL.id if hasattr(_THREAD_LOCAL, "id") and not None else "App"
-        )
-        return True
+def _load_config():
+    yamlcfg = _load_yaml()
+    _validate_cfg_keys(yamlcfg)
+    _validate_cfg_list_keys(yamlcfg)
+    return yamlcfg
 
 
-def _init_logger(to_file, filename, file_size, file_count, debug):
+def _load_yaml():
+    with open("config.yml", "r") as stream:
+        try:
+            return yaml.safe_load(stream)
+        except (yaml.YAMLError, ValueError) as exc:
+            log.error("Could not load config.yml file, error: %s", exc.args)
+            exit(1)
+
+
+def _init_logger():
     root = logging.getLogger()
     formatter = logging.Formatter(LOG_FORMAT, LOG_FORMAT_DATE)
-    if to_file:
+    if CFG["to_file"]:
         for handler in root.handlers:
             root.removeHandler(handler)
         handler = logging.handlers.RotatingFileHandler(
-            filename,
-            maxBytes=int(file_size) * 1024 * 1024,
-            backupCount=file_count,
+            CFG["filename"],
+            maxBytes=int(CFG["file_size"]) * 1024 * 1024,
+            backupCount=CFG["file_count"],
         )
         root.addHandler(handler)
     else:
@@ -64,14 +78,7 @@ def _init_logger(to_file, filename, file_size, file_count, debug):
     for handler in root.handlers:
         handler.setFormatter(formatter)
         handler.addFilter(UuidFilter())
-    root.setLevel(logging.DEBUG if debug else logging.INFO)
-
-
-def _load_config():
-    yamlcfg = _load_yaml()
-    _validate_cfg_keys(yamlcfg)
-    _validate_cfg_list_keys(yamlcfg)
-    return Config(**yamlcfg)
+    root.setLevel(logging.DEBUG if CFG["debug"] else logging.INFO)
 
 
 def _load_cache():
@@ -83,59 +90,48 @@ def _load_cache():
                     for k in cache.read().split(",")
                     if k
                 }
-                logging.info("Loaded cache: %s", cache)
+                log.info("Loaded cache: %s", cache)
                 return cache
         else:
             open(".cache", "x").close()
             log.info("Created new empty cache file [.cache]")
             return {}
     except OSError as exc:
-        log.critical("Could not load cache file: %s", exc)
-        log.critical("Exiting")
+        log.error("Could not load cache file, error: %s", exc.args)
         exit(1)
 
 
-def _load_yaml():
-    with open("config.yml", "r") as stream:
-        try:
-            return yaml.safe_load(stream)
-        except yaml.YAMLError as exc:
-            logging.critical("Could not load config file: %s", exc)
-            logging.critical("Exiting")
-            exit(1)
-
-
-def _validate_cfg_keys(config):
+def _validate_cfg_keys(yamlcfg):
     missing_values = list(
         filter(
-            lambda config_key: config.get(config_key) is None
-            and config_key not in optional_keys,
+            lambda config_key: yamlcfg.get(config_key) is None
+            and config_key not in OPTIONAL_KEYS,
             Config.__annotations__.keys(),
         )
     )
     unexpected_values = list(
         filter(
             lambda conf: conf not in Config.__annotations__.keys(),
-            config.keys(),
+            yamlcfg.keys(),
         ),
     )
     if missing_values or unexpected_values:
         if missing_values:
-            logging.error("Missing configuration key(s): %s", missing_values)
+            log.error("Missing configuration key(s): %s", missing_values)
         if unexpected_values:
-            logging.error("Configuration key(s) does not exist: %s", unexpected_values)
-        exit(1)
+            log.error("Configuration key(s) does not exist: %s", unexpected_values)
+        raise ValueError
 
 
-def _validate_cfg_list_keys(config):
+def _validate_cfg_list_keys(yamlcfg):
     fields = [
         *reduce(
             lambda f1, f2: [*f1, *f2],
-            map(lambda st: st.get("fields", []), config["status"]),
+            map(lambda st: st.get("fields", []), yamlcfg["status"]),
         ),
-        *config["fields"],
+        *yamlcfg["fields"],
     ]
-    _validate_keys(fields, config["status"])
+    _validate_keys(fields, yamlcfg["status"])
 
 
 def _validate_keys(fields, status):
@@ -146,18 +142,17 @@ def _validate_keys(fields, status):
     ]
     for cfg in configs:
         valid_keys = [*cfg["req"], *cfg["optional"]]
-        keys_not_found = _key_not_found(cfg["config"], valid_keys)
-        keys_missing = _key_missing(cfg["config"], cfg["req"])
-        if keys_not_found or keys_missing:
+        unexpected_values = _key_not_found(cfg["config"], valid_keys)
+        missing_keys = _key_missing(cfg["config"], cfg["req"])
+        if unexpected_values or missing_keys:
             error = True
-            logging.error(
-                "YAML key mapping error\nkeys not found: %s\nRequired keys missing: %s\nValid keys: %s",
-                keys_not_found,
-                keys_missing,
-                valid_keys,
-            )
+            if missing_keys:
+                log.error("Missing configuration key(s): %s", missing_keys)
+            if unexpected_values:
+                log.error("Configuration key(s) does not exist: %s", unexpected_values)
+            log.error("Valid keys: %s", valid_keys)
     if error:
-        exit(1)
+        raise ValueError
 
 
 def _key_missing(config, req_keys):
@@ -193,6 +188,14 @@ def _config_keys_set(config):
     )
 
 
+class UuidFilter(logging.Filter):
+    def filter(self, record):
+        record.id = (
+            _THREAD_LOCAL.id if hasattr(_THREAD_LOCAL, "id") and not None else "App"
+        )
+        return True
+
+
 @dataclasses.dataclass
 class Config:
     project: Union[str, int]
@@ -213,24 +216,13 @@ class Config:
     fields: List[Dict[str, Any]] = dataclasses.field(default_factory=list)
 
 
-optional_keys = {
-    "start_time",
-    "end_time",
-}
-
-log = logging.getLogger(__name__)
+CFG = _load_config()
+_init_logger()
 
 
 class App:
     def __init__(self):
-        self.cfg = _load_config()
-        _init_logger(
-            self.cfg.to_file,
-            self.cfg.filename,
-            self.cfg.file_size,
-            self.cfg.file_count,
-            self.cfg.debug,
-        )
+        self.cfg = Config(**CFG)
         self.cache = _load_cache()
         self.v_client = pytmv1.client(
             "v1jira",
@@ -242,7 +234,8 @@ class App:
             30,
         )
         self.j_client = Session()
-        self._prepare()
+        self._check_conn()
+        self._map_config()
         log.info("Initialized application with config: %s", self.cfg)
 
     def _save_cache(self, alert_id, jira_id):
@@ -252,17 +245,16 @@ class App:
                 self.cache[alert_id] = jira_id
                 log.debug("Written to cache alert %s (%s)", alert_id, jira_id)
         except OSError as exc:
-            log.critical("Could not save to cache: %s", exc)
-            log.critical("Exiting")
+            log.error("Could not save to cache, error: %s", exc.args)
             exit(1)
 
-    def _prepare(self):
-        self._format_cfg_times()
-        self._check_conn()
+    def _map_config(self):
         self.project = self._jira_project()
         self.issue_type = self._jira_issue_type()
-        self._init_fields()
-        self._init_statuses()
+        self.start_time = _format_config_time(self.cfg.start_time)
+        self.end_time = _format_config_time(self.cfg.end_time)
+        _map_fields_metadata(self.cfg.fields, self._jira_fields())
+        _map_statuses_metadata(self.cfg.status, self._jira_statuses())
 
     def _send(self, method, uri, **kwargs):
         token = self.cfg.jira["token"]
@@ -289,47 +281,17 @@ class App:
     def _check_conn(self):
         v1_resp = self.v_client.check_connectivity()
         if v1_resp.result_code == ResultCode.ERROR:
-            log.critical("Connectivity to Vision One failed: %s", v1_resp.error)
-            exit(1)
+            log.error("Connectivity to Vision One failed, error: %s", v1_resp.error)
+            raise RuntimeError
         jira_resp = self._send("GET", GET_MYSELF)
         if jira_resp.status_code != 200:
-            log.critical(
-                "Connectivity to JIRA failed, status: %s, reason: %s",
+            log.error(
+                "Connectivity to JIRA failed, status: %s, error: %s",
                 jira_resp.status_code,
-                jira_resp.reason,
+                jira_resp.content,
             )
-            exit(1)
+            raise RuntimeError
         log.info("Successfully connected to Vision One and JIRA")
-
-    def _format_cfg_times(self):
-        try:
-            self.cfg.start_time = format_config_time(self.cfg.start_time)
-            self.cfg.end_time = format_config_time(self.cfg.end_time)
-        except Exception as exc:
-            log.error("Could not parse the config start_time/end_time: %s", exc)
-            exit(1)
-
-    def _validate_statuses(self, jira_statuses):
-        status_not_found = list(
-            filter(lambda status: not status.get("id"), self.cfg.status)
-        )
-        inv_status_not_found = list(
-            filter(lambda status: not status.get("inv_st"), self.cfg.status)
-        )
-        if status_not_found or inv_status_not_found:
-            if status_not_found:
-                log.critical(
-                    "JIRA Status mapping error\nJIRA Status not found: %s\nValid names: %s",
-                    [st["name"] for st in status_not_found],
-                    [jst[1] for jst in jira_statuses],
-                )
-            if inv_status_not_found:
-                log.critical(
-                    "Vision One Status mapping error\nVision One Status not found: %s\nValid values: %s",
-                    [st["inv"] for st in inv_status_not_found],
-                    [inv.value for inv in InvestigationStatus],
-                )
-            exit(1)
 
     def _validate_curr_statuses(self, jira_status, v1_status):
         not_found_status = jira_status not in [st["key"] for st in self.cfg.status]
@@ -347,8 +309,7 @@ class App:
                     {"inv": v1_status.value},
                     self.cfg.status,
                 )
-            log.warning("Skipping update")
-            raise RuntimeError
+            raise ValueError
 
     def _get_config_status_by(self, status, key):
         return next(
@@ -361,39 +322,26 @@ class App:
         v1_mapped_status = self._get_config_status_by(v1_status, "inv_st")
         return jira_mapped_status["key"] == v1_mapped_status["key"]
 
-    def _init_fields(self):
-        _map_fields(self.cfg.fields, self._jira_fields())
-
-    def _init_statuses(self):
-        jira_statuses = self._jira_statuses()
-        self._map_statuses(jira_statuses)
-        self._validate_statuses(jira_statuses)
-
-    def _map_statuses(self, jira_statuses):
-        for status in self.cfg.status:
-            matched_status = next(
-                filter(
-                    lambda jst: jst[1].lower() == status["name"].lower(),
-                    jira_statuses,
-                ),
-                None,
-            )
-            investigation_status = _get_investigation_status(status["inv"])
-            if matched_status:
-                status["id"] = matched_status[0]
-                status["key"] = matched_status[1]
-            if investigation_status:
-                status["inv_st"] = investigation_status
-
     def _map_body(self, alert):
-        fields = self.cfg.fields.copy()
-        body = self._fields_to_body(alert, fields)
+        body = self._fields_to_body(alert, self.cfg.fields)
         body["project"] = {"id": self.project["id"]}
         body["issuetype"] = {"id": self.issue_type["id"]}
         body["summary"] = _format_summary(self.cfg.summary_prefix, alert)
         body["description"] = _format_description(alert)
         log.debug("Mapped JIRA fields to body: %s", body)
         return body
+
+    def _fields_to_body(self, alert, fields):
+        copy = fields.copy()
+        _map_v1_fields_value(alert, copy)
+        return {
+            field.get("key"): [
+                self._field_to_body(field, val) for val in field.get("value")
+            ]
+            if isinstance(field.get("value"), list)
+            else self._field_to_body(field, field.get("value"))
+            for field in copy
+        }
 
     def _field_to_body(self, field, value):
         schema = field["schema"]
@@ -408,17 +356,6 @@ class App:
             return {"id": str(value)}
         return {("name" if schema.get("system") else "value"): value}
 
-    def _fields_to_body(self, alert, fields):
-        _map_dynamic_fields_value(alert, fields)
-        return {
-            field.get("key"): [
-                self._field_to_body(field, val) for val in field.get("value")
-            ]
-            if isinstance(field.get("value"), list)
-            else self._field_to_body(field, field.get("value"))
-            for field in fields
-        }
-
     def run(self):
         while True:
             alert_list = self.v1_fetch_alerts()
@@ -427,15 +364,16 @@ class App:
                 if alert.id in self.cache:
                     try:
                         self._update_issue(alert)
-                    except RuntimeError:
+                    except (RuntimeError, ValueError):
                         log.exception(
-                            "Could not update JIRA issue: %s", self.cache[alert.id]
+                            "Skip record, JIRA update failed, issue: %s",
+                            self.cache[alert.id],
                         )
                 else:
                     self._create_issue(alert)
                 log.debug("Finished processing issue: %s", self.cache[alert.id])
             _THREAD_LOCAL.id = "App"
-            log.debug("Total processed: %s", len(alert_list))
+            log.info("Processed total: %s", len(alert_list))
             time.sleep(self.cfg.poll_time)
 
     def _create_issue(self, alert):
@@ -465,12 +403,12 @@ class App:
             alert.updated_date_time, "%Y-%m-%dT%H:%M:%S%z"
         )
         if last_jira_update > last_v1_update:
-            log.info("JIRA updated after Vision One")
+            log.debug("JIRA updated after Vision One")
             self._v1_edit_status(
                 alert, self._get_config_status_by(jira_status, "key")["inv_st"]
             )
             return
-        log.info("Vision One updated after JIRA")
+        log.debug("Vision One updated after JIRA")
         config_status = self._get_config_status_by(v1_status, "inv_st")
         transition = self._jira_transition(alert, config_status)
         json = {
@@ -478,8 +416,8 @@ class App:
         }
         fields = config_status.get("fields", [])
         if fields:
-            fields = fields.copy()
-            _map_fields(fields, transition["fields"])
+            if next(filter(lambda fi: not fi.get("schema"), fields), None):
+                _map_fields_metadata(fields, transition["fields"])
             json["fields"] = self._fields_to_body(alert, fields)
         self._jira_update_status(alert, config_status, json)
 
@@ -557,10 +495,10 @@ class App:
         ).astimezone(datetime.timezone.utc)
 
     def _jira_issue_type(self):
-        log.debug("Fetching JIRA Issue types for project: %s", self.cfg.project)
-        response = self._send("GET", GET_ISSUE_TYPES.format(self.cfg.project))
+        log.debug("Fetching JIRA Issue types for project: %s", self.project)
+        response = self._send("GET", GET_ISSUE_TYPES.format(self.project["id"]))
         if response.status_code != 200:
-            log.critical(
+            log.error(
                 "Could not fetch JIRA issue types, status: %s\nresponse: %s",
                 response.status_code,
                 response.content,
@@ -571,7 +509,7 @@ class App:
     def _jira_fields(self):
         log.debug("Fetching JIRA Fields meta for issue_type: %s", self.issue_type)
         response = self._send(
-            "GET", GET_FIELDS_META.format(self.cfg.project, self.issue_type["id"])
+            "GET", GET_FIELDS_META.format(self.project["id"], self.issue_type["id"])
         )
         log.debug("Received response from JIRA: %s", response)
         if response.status_code != 200:
@@ -581,7 +519,7 @@ class App:
     def _jira_project(self):
         response = self._send("GET", GET_PROJECT.format(self.cfg.project))
         if response.status_code != 200:
-            log.critical(
+            log.error(
                 "Could not fetch Project ID or KEY: %s, status: %s\nresponse: %s",
                 self.cfg.project,
                 response.status_code,
@@ -627,6 +565,9 @@ class App:
         if response.status_code != 200:
             log.error("Could not fetch JIRA user: %s", response.content)
             raise RuntimeError
+        if not response.json():
+            log.error("JIRA user not found: %s", value)
+            raise ValueError
         return response.json()[0]["accountId"]
 
     def _v1_add_note(self, alert):
@@ -680,8 +621,8 @@ class App:
         alert_list = []
         log.info(
             "Fetching alerts from Vision One [start_time: %s, end_time: %s, skip_closed: %s]",
-            self.cfg.start_time,
-            self.cfg.end_time,
+            self.start_time,
+            self.end_time,
             self.cfg.skip_closed,
         )
         result = self.v_client.consume_alert_list(
@@ -690,8 +631,8 @@ class App:
             or not self.cfg.skip_closed
             or al.investigation_status != InvestigationStatus.CLOSED
             else None,
-            self.cfg.start_time,
-            self.cfg.end_time,
+            self.start_time,
+            self.end_time,
         )
         if ResultCode.SUCCESS != result.result_code:
             log.error("Could not fetch alerts from Vision One: %s", result.error)
@@ -700,20 +641,10 @@ class App:
         return alert_list
 
 
-def format_config_time(alert_time):
-    return alert_time.strftime(ALERT_DATE_FORMAT) if alert_time else None
-
-
-def _map_dynamic_fields_value(alert, fields):
-    dyn_fields = list(filter(lambda fi: _is_field_dynamic(fi), fields))
-    for field in dyn_fields:
-        field["value"] = _get_dynamic_value(alert, field)
-
-
-def _map_fields(config_fields, jira_fields):
+def _map_fields_metadata(fields, jira_fields):
     possible_values = []
     for jira_field in jira_fields:
-        field = _get_conf_field_by_name(config_fields, jira_field)
+        field = _get_conf_field_by_name(fields, jira_field)
         if field:
             field["schema"] = jira_field["schema"]
             field["key"] = jira_field["key"]
@@ -724,7 +655,7 @@ def _map_fields(config_fields, jira_fields):
             possible_values.append(
                 (jira_field["key"], jira_field["name"], jira_field["required"])
             )
-    _validate_fields(config_fields, possible_values)
+    _validate_fields(fields, possible_values)
 
 
 def _validate_fields(config_fields, possible_values):
@@ -745,24 +676,52 @@ def _validate_fields(config_fields, possible_values):
         )
     )
     if not_found or required_missing:
-        log.critical(
+        log.error(
             "Field mapping error\nConfig fields not found: %s\nRequired fields missing: %s\nValid fields: %s",
             not_found,
             required_missing,
             possible_values,
         )
-        raise RuntimeError
+        raise ValueError
 
 
-def _is_field_dynamic(field):
-    value = field.get("value")
-    return next(
-        filter(
-            lambda val: val.startswith("alert."),
-            value if isinstance(value, list) else [value],
-        ),
-        False,
+def _map_statuses_metadata(statuses, jira_statuses):
+    for status in statuses:
+        matched_status = next(
+            filter(
+                lambda jst: jst[1].lower() == status["name"].lower(),
+                jira_statuses,
+            ),
+            None,
+        )
+        investigation_status = _get_investigation_status(status["inv"])
+        if matched_status:
+            status["id"] = matched_status[0]
+            status["key"] = matched_status[1]
+        if investigation_status:
+            status["inv_st"] = investigation_status
+    _validate_statuses(statuses, jira_statuses)
+
+
+def _validate_statuses(statuses, jira_statuses):
+    status_not_found = list(filter(lambda status: not status.get("id"), statuses))
+    inv_status_not_found = list(
+        filter(lambda status: not status.get("inv_st"), statuses)
     )
+    if status_not_found or inv_status_not_found:
+        if status_not_found:
+            log.error(
+                "JIRA Status mapping error\nJIRA Status not found: %s\nValid names: %s",
+                [st["name"] for st in status_not_found],
+                [jst[1] for jst in jira_statuses],
+            )
+        if inv_status_not_found:
+            log.error(
+                "Vision One Status mapping error\nVision One Status not found: %s\nValid values: %s",
+                [st["inv"] for st in inv_status_not_found],
+                [inv.value for inv in InvestigationStatus],
+            )
+        raise ValueError
 
 
 def _get_conf_field_by_name(config_fields, jira_field):
@@ -776,21 +735,96 @@ def _get_conf_field_by_name(config_fields, jira_field):
     )
 
 
+def _get_investigation_status(value):
+    return next(
+        filter(
+            lambda inv: inv.lower() == value.lower(),
+            InvestigationStatus,
+        ),
+        None,
+    )
+
+
+def _map_v1_fields_value(alert, fields):
+    v1_attr_fields = list(filter(lambda fi: _is_field_value_v1_attr(fi), fields))
+    for field in v1_attr_fields:
+        field["value"] = _get_v1_value(alert, field)
+
+
+def _is_field_value_v1_attr(field):
+    value = field.get("value")
+    return next(
+        filter(
+            lambda val: str(val).startswith("alert."),
+            value if isinstance(value, list) else [value],
+        ),
+        False,
+    )
+
+
+def _get_v1_value(alert, field):
+    value = field.get("value")
+    if isinstance(value, list):
+        return [
+            _parse_v1_value(alert, field.get("mapping"), field.get("key"), val)
+            for val in value
+        ]
+    return _parse_v1_value(alert, field.get("mapping"), field.get("key"), value)
+
+
+def _parse_v1_value(alert, mapping, key, value):
+    attr = str(value)[6:]
+    raw_v1_value = getattr(alert, attr, None)
+    if not raw_v1_value:
+        log.error(
+            "Vision One mapped attribute not found\nValue: %s\nAttribute: %s",
+            value,
+            attr,
+        )
+        raise RuntimeError
+    v1_value = raw_v1_value.value if isinstance(raw_v1_value, Enum) else raw_v1_value
+    if mapping:
+        value = next(
+            map(
+                lambda val: val[0],
+                filter(
+                    lambda item: item[1] == v1_value,
+                    mapping.items(),
+                ),
+            ),
+            None,
+        )
+        if not value:
+            log.error(
+                "JIRA value mapping error\nVision One value not found: %s\n"
+                "Mapped values: %s\nField: '%s'",
+                v1_value,
+                {*mapping.values()},
+                key,
+            )
+            raise ValueError
+        v1_value = value
+    return v1_value
+
+
 def _filter_jira_issue_type(issue_types, value):
+    issue_types = [
+        {"id": it["id"], "name": it["name"]} for it in issue_types["issueTypes"]
+    ]
     issue_type = next(
         filter(
             lambda it: value in it.values(),
-            [{"id": it["id"], "name": it["name"]} for it in issue_types["issueTypes"]],
+            issue_types,
         ),
         None,
     )
     if not issue_type:
-        log.critical(
-            "Issue type verification failed, issue_type: %s\nPossible values: %s",
+        log.error(
+            "Issue type verification error\nIssue type not found: %s\nPossible values: %s",
             value,
             issue_types,
         )
-        raise RuntimeError
+        raise ValueError
     return issue_type
 
 
@@ -821,55 +855,26 @@ def _filter_jira_transition(transitions, status):
             status["key"],
             transitions,
         )
-        raise RuntimeError
+        raise ValueError
     return jira_transition
 
 
-def _get_investigation_status(value):
-    return next(
-        filter(
-            lambda inv: inv.lower() == value.lower(),
-            InvestigationStatus,
-        ),
-        None,
-    )
-
-
-def _get_dynamic_value(alert, field):
-    value = field.get("value")
-    if isinstance(value, list):
-        return [
-            _parse_value(alert, field.get("mapping"), field.get("key"), val)
-            for val in value
-        ]
-    return _parse_value(alert, field.get("mapping"), field.get("key"), value)
-
-
-def _parse_value(alert, mapping, key, value):
-    raw_v1_value = getattr(alert, str(value)[6:])
-    v1_value = raw_v1_value.value if isinstance(raw_v1_value, Enum) else raw_v1_value
-    if mapping:
-        value = next(
-            map(
-                lambda val: val[0],
-                filter(
-                    lambda item: item[1] == v1_value,
-                    mapping.items(),
-                ),
-            ),
-            None,
+def _format_config_time(alert_time):
+    if alert_time:
+        formatted_time = (
+            alert_time.strftime(ALERT_DATE_FORMAT)
+            if isinstance(alert_time, datetime.datetime)
+            else None
         )
-        if not value:
+        if not formatted_time:
             log.error(
-                "JIRA value mapping error\nVision One value not found: %s\n"
-                "Mapped values: %s\nField: '%s'",
-                v1_value,
-                {*mapping.values()},
-                key,
+                "Could not parse config start_time/end_time\nValue: %s\n"
+                "Expected UTC date, example: 1970-12-25 18:00:00",
+                alert_time,
             )
-            raise RuntimeError
-        v1_value = value
-    return v1_value
+            raise ValueError
+        return formatted_time
+    return None
 
 
 def _format_description(alert):
@@ -919,7 +924,7 @@ def _format_description(alert):
 
 
 def _format_summary(prefix, alert):
-    host_entities = _host_entities(alert)
+    host_entities = _format_host_entities(alert)
     if len(host_entities) > 0:
         value = host_entities[0].entity_value.name
     else:
@@ -934,7 +939,7 @@ def _format_summary(prefix, alert):
     )
 
 
-def _host_entities(alert):
+def _format_host_entities(alert):
     return list(
         filter(
             lambda ent: ent.entity_type == EntityType.HOST,

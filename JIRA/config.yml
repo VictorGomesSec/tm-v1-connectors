@@ -49,8 +49,8 @@ fields:
   # value: JIRA/Vision one value
   - name: Checkbox
     value:
+      - 41786
       - 41787
-      - 42292
   - name: Dropdown
     value: Option 1
   - name: reporter
