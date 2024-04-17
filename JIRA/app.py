@@ -224,7 +224,7 @@ class App:
     def __init__(self):
         self.cfg = Config(**CFG)
         self.cache = _load_cache()
-        self.v_client = pytmv1.client(
+        self.v_client = pytmv1.init(
             "v1jira",
             self.cfg.v1["token"],
             self.cfg.v1["url"],
@@ -279,7 +279,7 @@ class App:
         )
 
     def _check_conn(self):
-        v1_resp = self.v_client.check_connectivity()
+        v1_resp = self.v_client.system.check_connectivity()
         if v1_resp.result_code == ResultCode.ERROR:
             log.error("Connectivity to Vision One failed, error: %s", v1_resp.error)
             raise RuntimeError
@@ -572,7 +572,7 @@ class App:
 
     def _v1_add_note(self, alert):
         log.debug("Adding Vision One alert note")
-        response = self.v_client.add_alert_note(
+        response = self.v_client.note.create(
             alert.id,
             f"JIRA Incident Created: {self.cache[alert.id]}\n"
             f"URL: {self.cfg.jira['url'] + '/browse/' + self.cache[alert.id]}",
@@ -585,7 +585,7 @@ class App:
 
     def _v1_edit_status(self, alert, status):
         log.debug("Editing Vision One alert status")
-        response = self.v_client.edit_alert_status(
+        response = self.v_client.alert.update_status(
             alert.id,
             status,
             self._v1_etag(alert),
@@ -606,7 +606,7 @@ class App:
 
     def _v1_etag(self, alert):
         log.debug("Fetching ETag from Vision One")
-        response = self.v_client.get_alert_details(alert.id)
+        response = self.v_client.alert.get(alert.id)
         log.debug("Received response from Vision One: %s", response)
         if ResultCode.SUCCESS != response.result_code:
             log.error(
@@ -625,7 +625,7 @@ class App:
             self.end_time,
             self.cfg.skip_closed,
         )
-        result = self.v_client.consume_alert_list(
+        result = self.v_client.alert.consume(
             lambda al: alert_list.append(al)
             if al.id in self.cache
             or not self.cfg.skip_closed
