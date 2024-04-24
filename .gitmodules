@@ -1,3 +1,6 @@
 [submodule "rapid7"]
 	path = rapid7
 	url = https://github.com/trendmicro/v1-connector-rapid7.git
+[submodule "tm-v1-splunk-soar"]
+	path = tm-v1-splunk-soar
+	url = https://github.com/splunk-soar-connectors/trendmicrovisionone.git
