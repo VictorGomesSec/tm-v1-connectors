@@ -284,7 +284,7 @@ class App:
             log.error("Connectivity to Vision One failed, error: %s", v1_resp.error)
             raise RuntimeError
         jira_resp = self._send("GET", GET_MYSELF)
-        if jira_resp.status_code != 200:
+        if jira_resp.status_code != 200 or 302 in (jr.status_code for jr in jira_resp.history):
             log.error(
                 "Connectivity to JIRA failed, status: %s, error: %s",
                 jira_resp.status_code,
