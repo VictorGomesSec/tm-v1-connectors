@@ -22,7 +22,7 @@ GET_ISSUE_TYPES = "/rest/api/2/issue/createmeta/{0}/issuetypes/"
 GET_FIELDS_META = "/rest/api/2/issue/createmeta/{0}/issuetypes/{1}/"
 GET_MYSELF = "/rest/api/2/myself"
 GET_PROJECT = "/rest/api/2/project/{0}"
-GET_USER = "/rest/api/2/user/search?query={}"
+GET_USER = "/rest/api/2/user/search?username={}"
 DO_TRANSITION = "/rest/api/2/issue/{0}/transitions"
 GET_ISSUE = "/rest/api/2/issue/{0}"
 GET_LAST_UPDATED = "/rest/api/2/issue/{0}?fields=creator,updated"
@@ -351,7 +351,7 @@ class App:
         if field_type == "number":
             return int(value)
         if field_type == "user":
-            return {"id": self._jira_user_acc_id(field.get("key"), value)}
+            return {"name": self._jira_user_acc_name(field.get("key"), value)}
         if isinstance(value, int) or str(value).isdigit():
             return {"id": str(value)}
         return {("name" if schema.get("system") else "value"): value}
@@ -465,7 +465,7 @@ class App:
             files={
                 "file": (
                     "json.txt",
-                    alert.json(),
+                    alert.model_dump_json(),
                     "text/plain",
                 )
             },
@@ -475,7 +475,7 @@ class App:
             log.error(
                 "Could not attach raw json data to issue %s: %s",
                 self.cache[alert.id],
-                response,
+                response.content,
             )
             raise RuntimeError
         log.info("Attached json data to issue: %s", self.cache[alert.id])
@@ -514,7 +514,8 @@ class App:
         log.debug("Received response from JIRA: %s", response)
         if response.status_code != 200:
             log.error("Could not fetch JIRA Fields meta: %s", response.content)
-        return response.json()["fields"]
+        json = response.json()
+        return json.get("fields", json.get("values"))
 
     def _jira_project(self):
         response = self._send("GET", GET_PROJECT.format(self.cfg.project))
@@ -532,7 +533,7 @@ class App:
     def _jira_status(self, alert):
         log.debug("Fetching current JIRA status for issue: %s", self.cache[alert.id])
         response = self._send("GET", GET_STATUS.format(self.cache[alert.id]))
-        log.debug("Received response from JIRA: %s", response.content)
+        log.debug("Received response from JIRA: %s", response)
         if response.status_code != 200:
             log.error("Could not fetch JIRA issue status: %s", response.content)
             raise RuntimeError
@@ -541,7 +542,7 @@ class App:
     def _jira_statuses(self):
         log.debug("Fetching JIRA statuses")
         response = self._send("GET", GET_STATUSES)
-        log.debug("Received response from JIRA: %s", response.content)
+        log.debug("Received response from JIRA: %s", response)
         if response.status_code != 200:
             log.error("Could not fetch JIRA statuses: %s", response.content)
             raise RuntimeError
@@ -550,15 +551,15 @@ class App:
     def _jira_transition(self, alert, status):
         log.debug("Fetching JIRA transitions for issue: %s", self.cache[alert.id])
         response = self._send("GET", GET_TRANSITIONS.format(self.cache[alert.id]))
-        log.debug("Received response from JIRA: %s", response.content)
+        log.debug("Received response from JIRA: %s", response)
         if response.status_code != 200:
             log.error("Could not fetch JIRA issue transitions: %s", response.content)
             raise RuntimeError
         return _filter_jira_transition(response.json()["transitions"], status)
 
-    def _jira_user_acc_id(self, field, value):
+    def _jira_user_acc_name(self, field, value):
         log.debug(
-            "Fetching JIRA user ID for config field: %s, user value:", field, value
+            "Fetching JIRA user ID for config field: %s, user value: %s", field, value
         )
         response = self._send("GET", GET_USER.format(value))
         log.debug("Received response from JIRA: %s", response)
@@ -568,7 +569,7 @@ class App:
         if not response.json():
             log.error("JIRA user not found: %s", value)
             raise ValueError
-        return response.json()[0]["accountId"]
+        return response.json()[0]["name"]
 
     def _v1_add_note(self, alert):
         log.debug("Adding Vision One alert note")
@@ -581,7 +582,7 @@ class App:
         if ResultCode.SUCCESS != response.result_code:
             log.error("Could not create Vision One note: %s", response.error)
             raise RuntimeError
-        log.info("Created Vision One note: %s", response.response.location)
+        log.info("Created Vision One note: %s", response.response.note_id)
 
     def _v1_edit_status(self, alert, status):
         log.debug("Editing Vision One alert status")
@@ -647,13 +648,13 @@ def _map_fields_metadata(fields, jira_fields):
         field = _get_conf_field_by_name(fields, jira_field)
         if field:
             field["schema"] = jira_field["schema"]
-            field["key"] = jira_field["key"]
+            field["key"] = jira_field.get("key", jira_field["fieldId"])
             value = field["value"]
             if field["schema"]["type"] == "array" and not isinstance(value, list):
                 field["value"] = [value]
         else:
             possible_values.append(
-                (jira_field["key"], jira_field["name"], jira_field["required"])
+                (jira_field.get("key", jira_field["fieldId"]), jira_field["name"], jira_field["required"])
             )
     _validate_fields(fields, possible_values)
 
@@ -728,7 +729,7 @@ def _get_conf_field_by_name(config_fields, jira_field):
     return next(
         filter(
             lambda fi: str(fi["name"]).lower()
-            in (jira_field["key"], jira_field["name"].lower()),
+            in (jira_field.get("key", jira_field["fieldId"]), jira_field["name"].lower()),
             config_fields,
         ),
         None,
@@ -809,7 +810,7 @@ def _parse_v1_value(alert, mapping, key, value):
 
 def _filter_jira_issue_type(issue_types, value):
     issue_types = [
-        {"id": it["id"], "name": it["name"]} for it in issue_types["issueTypes"]
+        {"id": it["id"], "name": it["name"]} for it in issue_types.get("issueTypes", issue_types.get("values"))
     ]
     issue_type = next(
         filter(
@@ -834,7 +835,7 @@ def _filter_jira_status(jira_statuses, project_id):
             lambda status: (status["id"], status["name"]),
             filter(
                 lambda status: project_id
-                == (status["scope"]["project"]["id"] if status.get("scope") else None),
+                == (status["scope"]["project"]["id"] if status.get("scope") else project_id),
                 jira_statuses,
             ),
         )
