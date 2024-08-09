@@ -1,7 +1,7 @@
 ## Trend Vision One™ JIRA connector
 
 #### Prerequisites
-- [Python 3.7](https://www.python.org/downloads/) or newer.
+- [Python 3.8](https://www.python.org/downloads/) or newer.
 - JIRA API url.
 - JIRA username/token.
 - Trend Vision One API url. 
