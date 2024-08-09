@@ -27,7 +27,7 @@ DO_TRANSITION = "/rest/api/2/issue/{0}/transitions"
 GET_ISSUE = "/rest/api/2/issue/{0}"
 GET_LAST_UPDATED = "/rest/api/2/issue/{0}?fields=creator,updated"
 GET_STATUS = "/rest/api/2/issue/{0}?fields=status"
-GET_STATUSES = "/rest/api/2/status/"
+GET_STATUSES = "/rest/api/2/project/{0}/statuses/"
 GET_TRANSITIONS = "/rest/api/2/issue/{0}/transitions?expand=transitions.fields"
 LOG_FORMAT = (
     "%(asctime)s %(levelname)-5s ::: %(thread)d %(filename)-18s :::"
@@ -284,7 +284,9 @@ class App:
             log.error("Connectivity to Vision One failed, error: %s", v1_resp.error)
             raise RuntimeError
         jira_resp = self._send("GET", GET_MYSELF)
-        if jira_resp.status_code != 200 or 302 in (jr.status_code for jr in jira_resp.history):
+        if jira_resp.status_code != 200 or 302 in (
+            jr.status_code for jr in jira_resp.history
+        ):
             log.error(
                 "Connectivity to JIRA failed, status: %s, error: %s",
                 jira_resp.status_code,
@@ -335,11 +337,11 @@ class App:
         copy = fields.copy()
         _map_v1_fields_value(alert, copy)
         return {
-            field.get("key"): [
-                self._field_to_body(field, val) for val in field.get("value")
-            ]
-            if isinstance(field.get("value"), list)
-            else self._field_to_body(field, field.get("value"))
+            field.get("key"): (
+                [self._field_to_body(field, val) for val in field.get("value")]
+                if isinstance(field.get("value"), list)
+                else self._field_to_body(field, field.get("value"))
+            )
             for field in copy
         }
 
@@ -541,12 +543,12 @@ class App:
 
     def _jira_statuses(self):
         log.debug("Fetching JIRA statuses")
-        response = self._send("GET", GET_STATUSES)
+        response = self._send("GET", GET_STATUSES.format(self.cfg.project))
         log.debug("Received response from JIRA: %s", response)
         if response.status_code != 200:
             log.error("Could not fetch JIRA statuses: %s", response.content)
             raise RuntimeError
-        return _filter_jira_status(response.json(), self.project["id"])
+        return _filter_jira_status(response.json(), self.issue_type["id"])
 
     def _jira_transition(self, alert, status):
         log.debug("Fetching JIRA transitions for issue: %s", self.cache[alert.id])
@@ -627,11 +629,13 @@ class App:
             self.cfg.skip_closed,
         )
         result = self.v_client.alert.consume(
-            lambda al: alert_list.append(al)
-            if al.id in self.cache
-            or not self.cfg.skip_closed
-            or al.investigation_status != InvestigationStatus.CLOSED
-            else None,
+            lambda al: (
+                alert_list.append(al)
+                if al.id in self.cache
+                or not self.cfg.skip_closed
+                or al.investigation_status != InvestigationStatus.CLOSED
+                else None
+            ),
             self.start_time,
             self.end_time,
         )
@@ -654,7 +658,11 @@ def _map_fields_metadata(fields, jira_fields):
                 field["value"] = [value]
         else:
             possible_values.append(
-                (jira_field.get("key", jira_field["fieldId"]), jira_field["name"], jira_field["required"])
+                (
+                    jira_field.get("key", jira_field["fieldId"]),
+                    jira_field["name"],
+                    jira_field["required"],
+                )
             )
     _validate_fields(fields, possible_values)
 
@@ -729,7 +737,10 @@ def _get_conf_field_by_name(config_fields, jira_field):
     return next(
         filter(
             lambda fi: str(fi["name"]).lower()
-            in (jira_field.get("key", jira_field["fieldId"]), jira_field["name"].lower()),
+            in (
+                jira_field.get("key", jira_field["fieldId"]),
+                jira_field["name"].lower(),
+            ),
             config_fields,
         ),
         None,
@@ -810,7 +821,8 @@ def _parse_v1_value(alert, mapping, key, value):
 
 def _filter_jira_issue_type(issue_types, value):
     issue_types = [
-        {"id": it["id"], "name": it["name"]} for it in issue_types.get("issueTypes", issue_types.get("values"))
+        {"id": it["id"], "name": it["name"]}
+        for it in issue_types.get("issueTypes", issue_types.get("values"))
     ]
     issue_type = next(
         filter(
@@ -829,19 +841,22 @@ def _filter_jira_issue_type(issue_types, value):
     return issue_type
 
 
-def _filter_jira_status(jira_statuses, project_id):
+def _filter_jira_status(issue_type_statuses, issue_type_id):
     jira_statuses = list(
         map(
             lambda status: (status["id"], status["name"]),
-            filter(
-                lambda status: project_id
-                == (status["scope"]["project"]["id"] if status.get("scope") else project_id),
-                jira_statuses,
-            ),
+            next(filter(
+                    lambda issue_type_status: issue_type_id
+                    == issue_type_status["id"],
+                    issue_type_statuses,
+                ),
+            )["statuses"],
         )
     )
     log.debug(
-        "Filtered JIRA statuses: %s, for project id: %s", jira_statuses, project_id
+        "Filtered JIRA statuses: %s, for issue type id: %s",
+        jira_statuses,
+        issue_type_id,
     )
     return jira_statuses
 
