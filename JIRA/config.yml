@@ -10,7 +10,7 @@ summary_prefix: My Issue Prefix
 poll_time: 15
 # Workbench alerts retrieval start time (UTC timezone),
 # If empty, defaults to 24 hours before the request is made.
-start_time: 1970-01-01 00:00:00
+start_time: 2024-08-09 08:20:00
 # Workbench alerts retrieval end time (UTC timezone),
 # If empty, defaults to the time the request is made.
 end_time:
@@ -18,14 +18,14 @@ end_time:
 skip_closed: true
 ## Logging configuration
 # Enable debug logging
-debug: false
+debug: true
 # Enable logging to file instead of stdout
 to_file: false
 # Log filename
 filename: app.log
 # Log file max size in MB
 file_size: 50
-# Log files rotation count
+# Number of log files to retain
 file_count: 5
 
 ## Credentials configuration
@@ -43,20 +43,14 @@ jira:
   # JIRA Cloud API Token or On-premise Personal Authentication Token
   token: token
 
-## JIRA key to JIRA/Vision One value mapping
+## JIRA to JIRA key-value mapping
 fields:
   # field: JIRA field name or key
   # value: JIRA/Vision one value
-  - name: Checkbox
-    value:
-      - 41786
-      - 41787
-  - name: Dropdown
-    value: Option 1
   - name: reporter
     value: email@address.com
   - name: assignee
-    value: John Doe
+    value: email@address.com
   - name: labels
     value:
       - alert.alert_provider
@@ -64,12 +58,10 @@ fields:
   - name: priority
     value: alert.severity
     mapping:
-      P3: low
-      P2: medium
-      P1: high
-      P0: critical
-  - name: resolution
-    value: Unresolved
+      Lowest: low
+      Low: medium
+      High: high
+      Highest: critical
 
 ## JIRA issue status to Vision One Alert investigation status mapping
 status:
@@ -84,5 +76,5 @@ status:
   - name: Done
     inv: Closed
     fields:
-      - name: Score
-        value: alert.score
+      - name: Resolution
+        value: Done
