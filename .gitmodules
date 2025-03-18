@@ -4,3 +4,6 @@
 [submodule "tm-v1-splunk-soar"]
 	path = tm-v1-splunk-soar
 	url = https://github.com/splunk-soar-connectors/trendmicrovisionone.git
+[submodule "v1-connector-kong"]
+	path = v1-connector-kong
+	url = https://github.com/trendmicro/v1-connector-kong.git
