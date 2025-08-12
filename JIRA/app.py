@@ -345,6 +345,7 @@ class App:
             for field in copy
         }
 
+
     def _field_to_body(self, field, value):
         schema = field["schema"]
         field_type = schema["items"] if schema["type"] == "array" else schema["type"]
@@ -353,10 +354,11 @@ class App:
         if field_type == "number":
             return int(value)
         if field_type == "user":
-            return {"name": self._jira_user_acc_name(field.get("key"), value)}
+            return {"accountId": self._jira_user_acc_name(field.get("key"), value)}
         if isinstance(value, int) or str(value).isdigit():
             return {"id": str(value)}
         return {("name" if schema.get("system") else "value"): value}
+
 
     def run(self):
         while True:
@@ -560,18 +562,13 @@ class App:
         return _filter_jira_transition(response.json()["transitions"], status)
 
     def _jira_user_acc_name(self, field, value):
+        # 移除使用 "username" 查询参数的 JIRA 用户搜索 API 调用
+        # 这是为了适应 JIRA Cloud 的 GDPR 严格模式
         log.debug(
-            "Fetching JIRA user ID for config field: %s, user value: %s", field, value
+            "Directly using JIRA user ID from config for field: %s, value: %s", field, value
         )
-        response = self._send("GET", GET_USER.format(value))
-        log.debug("Received response from JIRA: %s", response)
-        if response.status_code != 200:
-            log.error("Could not fetch JIRA user: %s", response.content)
-            raise RuntimeError
-        if not response.json():
-            log.error("JIRA user not found: %s", value)
-            raise ValueError
-        return response.json()[0]["name"]
+        return value
+
 
     def _v1_add_note(self, alert):
         log.debug("Adding Vision One alert note")
