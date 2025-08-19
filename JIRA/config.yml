@@ -31,12 +31,12 @@ file_count: 5
 ## Credentials configuration
 v1:
   # Vision One API URL
-  url: https://api-int.visionone.trendmicro.com 
+  url: https://api.region.visionone.trendmicro.com 
   # Vision One API Token
-  token: <VisionOne Token>
+  token: token
 jira:
   # JIRA URL
-  url: https://trendvisionone.atlassian.net
+  url: https://company.atlassian.net
   # JIRA Cloud Username (User email address associated to the API Token)
   # Important: leave empty if using JIRA On-premise
   username: <username> 
