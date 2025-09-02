@@ -324,12 +324,12 @@ class App:
         v1_mapped_status = self._get_config_status_by(v1_status, "inv_st")
         return jira_mapped_status["key"] == v1_mapped_status["key"]
 
-    def _map_body(self, alert):
+    def _map_body(self, alert, notes=None):
         body = self._fields_to_body(alert, self.cfg.fields)
         body["project"] = {"id": self.project["id"]}
         body["issuetype"] = {"id": self.issue_type["id"]}
         body["summary"] = _format_summary(self.cfg.summary_prefix, alert)
-        body["description"] = _format_description(alert)
+        body["description"] = _format_description(alert, notes)
         log.debug("Mapped JIRA fields to body: %s", body)
         return body
 
@@ -427,10 +427,33 @@ class App:
 
     def _jira_create_issue(self, alert):
         log.info("Creating JIRA issue")
+
+        # 获取alert的notes
+        notes = []
+        try:
+            response = self.v_client.note.consume(
+                lambda note: (
+                    notes.append(note.content)
+                    if not note.content.startswith("JIRA Incident Created:")
+                    and not note.content.startswith("JIRA Incident Updated:")
+                    else None
+                ),
+                alert.id
+            )
+            if response.result_code != pytmv1.ResultCode.SUCCESS:
+                log.warning("Could not fetch notes for alert %s: %s", alert.id, response.error)
+                notes = []
+        except Exception as e:
+            log.warning("Error fetching notes for alert %s: %s", alert.id, str(e))
+            notes = []
+
+        log.debug("Fetched %r notes for alert %s", notes, alert.id)
+        data = {"fields": self._map_body(alert, notes)}
+        log.debug("data: %s", data)
         response = self._send(
             "POST",
             CREATE_ISSUE,
-            json={"fields": self._map_body(alert)},
+            json=data,
         )
         log.debug("Received response from JIRA: %s", response)
         if response.status_code != 201:
@@ -641,6 +664,29 @@ class App:
             raise RuntimeError
         log.debug("Fetched alerts from Vision One: %s", alert_list)
         return alert_list
+
+    def v1_fetch_alerts_notes(self, alert):
+        log.info("Fetching notes from Vision One for alert: %s", alert.id)
+        notes = []
+        response = self.v_client.note.consume(
+            lambda note: (
+                notes.append(note.content)
+                if not note.content.startswith("JIRA Incident Created:")
+                and not note.content.startswith("JIRA Incident Updated:")
+                else None
+
+            ),
+            alert.id)
+        log.info("Received response from Vision One: %r", notes)
+        if ResultCode.SUCCESS != response.result_code:
+            log.error(
+                "Could not fetch notes from Vision One (%s): %s",
+                alert.id,
+                response.error,
+            )
+            raise RuntimeError
+        return response.response
+
 
 
 def _map_fields_metadata(fields, jira_fields):
@@ -890,7 +936,7 @@ def _format_config_time(alert_time):
     return None
 
 
-def _format_description(alert):
+def _format_description(alert, notes=None):
     rules = "\n** ".join(rule.name for rule in alert.matched_rules)
     entities = "\n** ".join(
         entity.entity_type
@@ -926,14 +972,31 @@ def _format_description(alert):
             for tech in matched_filter.mitre_technique_ids:
                 mitres.append(tech)
     mitres = "\n** ".join(mitres)
-    return (
-        f"*Summary*\n\n* Detected by: XDR\n* Severity: {alert.severity}\n* Score: {alert.score}\n\n\n"
-        f"*Event Details*\n\n* Vision One Model: {alert.model}\n* Rules\n** {rules}\n"
-        f"* Vision One Alert Highlights:\n** {entities}\n"
-        f"* Vision One Alert Indicators\n** {indicators}\n"
-        f"* MITRE ATT&CK:\n** {mitres}\n"
-        f"* Vision One Alert Link:\n** {alert.workbench_link}"
-    )
+    
+    # 格式化notes部分
+    notes_section = ""
+    if notes:
+        formatted_notes = "\n** ".join(notes)
+        #notes_section = f"*Alert Notes:\n** {formatted_notes}"
+    
+        return (
+            f"*Summary*\n\n* Detected by: XDR\n* Severity: {alert.severity}\n* Score: {alert.score}\n\n\n"
+            f"*Event Details*\n\n* Vision One Model: {alert.model}\n* Rules\n** {rules}\n"
+            f"* Vision One Alert Highlights:\n** {entities}\n"
+            f"* Vision One Alert Indicators\n** {indicators}\n"
+            f"* MITRE ATT&CK:\n** {mitres}\n"
+            f"* Vision One Alert Link:\n** {alert.workbench_link}\n"
+            f"* Alert Notes:\n** {formatted_notes}"
+        )
+    else:
+        return (
+            f"*Summary*\n\n* Detected by: XDR\n* Severity: {alert.severity}\n* Score: {alert.score}\n\n\n"
+            f"*Event Details*\n\n* Vision One Model: {alert.model}\n* Rules\n** {rules}\n"
+            f"* Vision One Alert Highlights:\n** {entities}\n"
+            f"* Vision One Alert Indicators\n** {indicators}\n"
+            f"* MITRE ATT&CK:\n** {mitres}\n"
+            f"* Vision One Alert Link:\n** {alert.workbench_link}"
+        )
 
 
 def _format_summary(prefix, alert):
