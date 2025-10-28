@@ -1,0 +1,21 @@
+version: "3.8"
+services:
+  tm-jira-connector:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tm_jira_connector
+    restart: unless-stopped
+    volumes:
+      - ./config.yml:/app/config.yml:ro
+      - ./.cache:/app/.cache
+      - ./logs:/app/logs   # opcional, caso ative to_file=true no config
+    environment:
+      # apenas exemplo (geralmente você já tem config.yml com tokens)
+      # NÃO inserir segredos aqui em texto plano em ambientes públicos
+      # - JIRA_TOKEN=...
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
